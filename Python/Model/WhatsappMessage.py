@@ -1,4 +1,5 @@
 import time
+import hashlib
 class WhatsappMessage:
     def __init__(self, 
     sender : str, 
@@ -53,6 +54,8 @@ read_time : int
         self.read_time_datetime = time.strftime("%d/%m/%Y %H:%M:%S", time.localtime(read_time))
 
 
+        
+
     def __str__(self):
         if self.type == "MESSAGE":
             return f"{self.sender} -> {self.receiver} : {self.message}"
@@ -77,3 +80,16 @@ read_time : int
         elif self.type == "OTHER":
             return f"{self.sender} -> {self.receiver} : OTHER"
         # return  self.sender + " to " + self.receiver + " on " + self.send_time_datetime + "\n\t" + self.message
+    def getSha256(self):
+        self.message_hash = hashlib.sha256(self.message.encode('utf-8')).hexdigest()
+        return self.message_hash
+    def setSha256(self,sha256):
+        self.message_hash = sha256
+    def getDate(self):
+        return self.send_time_epoch
+        
+    def setSrc(self,src):
+        self.src = self.src
+    def getSrc(self):
+        return self.src
+

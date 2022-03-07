@@ -8,7 +8,8 @@ import zipfile
 
 import logging
 CHROME_VER = 0
-FOLDER_NAME= ["Log","Screenshot","Driver","Profile"]
+FOLDER_NAME= ["Log","Screenshot","Driver","Profile","Database","Picture"]
+
 
 def get_software_list(hive, flag):
         aReg = winreg.ConnectRegistry(None, hive)

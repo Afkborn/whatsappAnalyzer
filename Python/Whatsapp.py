@@ -1,6 +1,11 @@
 #logging
+from ast import expr_context
 import logging
-from time import sleep, time
+
+from matplotlib.style import use
+
+
+
 
 #Compatibility
 from Python import Compatibility as C
@@ -8,6 +13,7 @@ from Python import Compatibility as C
 #Module
 from Python.Model.WhatsappMessage import WhatsappMessage
 from Python.Model.Person import Person
+
 #Selenium
 from selenium.webdriver import Chrome,ChromeOptions
 from selenium.webdriver.common.keys import Keys
@@ -17,14 +23,22 @@ from selenium.common.exceptions import NoSuchElementException
 #genel 
 from os import getcwd, path
 from datetime import datetime
+from time import sleep, time
+from urllib import request
+from os.path import exists
+from os import mkdir
 
 #XPATH
 from Python import XPATH as XP
 
+#Database
+from Python.DatabasePerson import DatabasePerson
+
 class Whatsapp:
-    def __init__(self, debugEnable=False, profileName = "profile1"):
+    def __init__(self,username , debugEnable=False, profileName = "profile1"):
         self.WPURL = "https://web.whatsapp.com/"
         self.personObj = []
+        self.username = username
         self.debugEnable = debugEnable
         self.set_logging()
 
@@ -45,11 +59,20 @@ class Whatsapp:
         self.options.add_argument("--log-level=3")
         self.options.headless = not debugEnable
 
+        self.myDb = DatabasePerson()
+
+        #load db
+        self.personObj = self.myDb.loadDB()
+
+
         self.__startBrowser()
 
         self.login()
         
 
+    def print_all_person(self):
+        for i in self.personObj:
+            print(i.getName())
 
     def get_time_log_config(self):
         return datetime.now().strftime("%H_%M_%S_%d_%m_%Y")
@@ -79,7 +102,6 @@ class Whatsapp:
                 logging.error("No Such Element Exception")
             sleep(0.5)
 
-        
 
     def getPage(self,URL : str):
         if self.browser.current_url == URL:
@@ -120,6 +142,8 @@ class Whatsapp:
             iName = i.getName()
             if iName == name:
                 return True
+        print(f"{name} is not in personObj")
+        logging.error(f"{name} is not in personObj")
         return False
 
     def scroolNewChatPartPaneSide(self,y):
@@ -146,12 +170,37 @@ class Whatsapp:
             logging.info(f"Max scrool new chat part pane side is {maxScroolNewChatPartPaneSide}")
             return maxScroolNewChatPartPaneSide
 
+    def scroolChatPaneSide(self,y):
+        """Sohbet panelinde scrool yapmaya yarayan fonksiyon. Y ne kadar scrool yapılacağını belirtir."""
+        script = f"""
+        function getElementByXpath(path){{
+            return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        }}
+        myObj1 = getElementByXpath('//*[@id="main"]/div[3]/div/div[2]')
+        myObj1.scrollBy(0,{y})
+        """
+        if self.browser.current_url == self.WPURL:
+            self.browser.execute_script(script)
+
+    def getMaxScroolChatPaneSide(self):
+        script = f"""
+        function getElementByXpath(path){{
+            return document.evaluate(path, document, null, XPathResult.FIRST_ORDERED_NODE_TYPE, null).singleNodeValue;
+        }}
+        myObj1 = getElementByXpath('//*[@id="main"]/div[3]/div/div[2]')
+        return myObj1.scrollHeight"""
+        if  self.browser.current_url == self.WPURL:
+            maxScroolChatPaneSide = self.browser.execute_script(script)
+            logging.info(f"Max scrool new chat part pane side is {maxScroolChatPaneSide}")
+            return maxScroolChatPaneSide
+
     def clickNewChatButton(self):
         """Yeni sohbet oluştur butonuna tıklar"""
         script = f"""var myObj = document.querySelector('[title="Yeni sohbet"]');
         myObj.click()"""
         if  self.browser.current_url == self.WPURL:
             self.browser.execute_script(script)
+            logging.info("New chat button is clicked")
             sleep(0.1)
     
 
@@ -179,6 +228,8 @@ class Whatsapp:
                 myPerson = Person(i,0,1)
                 self.personObj.append(myPerson)
                 count += 1
+                if self.myDb.get_person_with_name(myPerson.getName()) == None:
+                    self.myDb.addPerson(myPerson)
         logging.info("Getting person from new chat part ended")
         logging.info(f"{count} person added")
 
@@ -207,7 +258,8 @@ class Whatsapp:
 
                     if not ",PERSON,PERSON" in name:
                         nameSet.add(name)
-                        print(name)
+                        just_name = name.split(",")[0]
+                        print(f"Find person! name: {just_name}                          ",end="\r")
                 except:
                     pass
             self.scroolPaneSide(100)
@@ -221,8 +273,203 @@ class Whatsapp:
                 name = i.replace(",GROUP","")
                 myPerson = Person(name,1,0)
             self.personObj.append(myPerson)
+            if self.myDb.get_person_with_name(myPerson.getName()) == None:
+                self.myDb.addPerson(myPerson)
             count += 1
         logging.info("Getting person from last conversations ended")
         logging.info(f"{count} person added")
+    
+
+    def clickPeopleInNewChatSide(self,name):
+        """Yeni sohbet ekranındaki arama kısmına verilen ismi yazar ve verilen isimle eşleşen bir kişi varsa tıklar ardından True döner."""
+        xpath = '//*[@id="app"]/div[1]/div[1]/div[2]/div[1]/span/div[1]/span/div[1]/div[1]/div/label/div/div[2]'
+        searchBox = self.browser.find_element_by_xpath(xpath)
+        searchBox.send_keys(name)
+        sleep(0.2)
+        for i in range(1,10):
+            xpath = f'//*[@id="app"]/div[1]/div[1]/div[2]/div[1]/span/div[1]/span/div[1]/div[2]/div/div/div/div[{i}]/div/div/div[2]/div[1]/div/span'
+            try:
+                findObj = self.browser.find_element_by_xpath(xpath)
+                if findObj.text == name:
+                    findObj.click()
+                    sleep(0.2)
+                    logging.info(f"Click people in new chat side success, name: {name}")
+                    return True
+            except Exception as e:
+                pass
+        logging.info(f"{name} not found")
+        return False
+
+    def clickNameBar(self):
+        # buranın bu şekilde yapılmasının sebebi ileride mouse konumuna tıklamak değil xpath veya farklı bir yöntem bularak kesin bir bulma yöntemi kullanılacka.
+        self.__clickXY(390,28)
+        logging.info("Clicked name bar")
+
+    def __clickXY(self,x,y):
+        """tarayıcıda istenilen yere tıklamak için kullanılıyor"""
+        action = ActionChains(self.browser)
+        action.move_by_offset(x,y)
+        action.click()
+        action.perform()
+        action.reset_actions()
+
+    def downloadPictureFromURL(self,url,location):
+        """url den resim indirmeye yarayan fonksiyon"""
+        logging.info(f"Downloading picture from url: {url}")
+        try:
+            request.urlretrieve(url, location)
+            logging.info(f"Picture downloaded from url: {url}")
+        except Exception as e:
+            logging.info(f"Picture download failed from url: {url}")
+            logging.info(e)
+        logging.info("Downloading picture from url ended")
+
+    def createFolder(self,folderLocation):
+        """Verilen isimde bir klasör oluşturur"""
+        if not exists(folderLocation):
+            mkdir(folderLocation)
+            logging.info(f"Folder created: {folderLocation}")
+        else:
+            logging.info(f"Folder already exist: {folderLocation}")
+
+
+    def getMessagePerson(self,person:Person,istenilenSayi:int):
+        if self.browser.current_url == self.WPURL:
+            if person.getType() == "Person":
+                self.clickNewChatButton()
+                if self.clickPeopleInNewChatSide(person.getName()):
+                    mesajSayisi = 0
+                    mesajListesi = []
+                    mesaj_icerik_sha256 = []
+                    while mesajSayisi <= istenilenSayi:
+                        for i in range(36):
+                            
+                            #mesaj
+                            try:
+                                mesaj_icerik = self.browser.find_element_by_xpath(f'//*[@id="main"]/div[3]/div/div[2]/div[3]/div[{i}]/div/div/div/div[1]/div/span[1]/span').text
+                                tarih_gonderici = self.browser.find_element_by_xpath(f'//*[@id="main"]/div[3]/div/div[2]/div[3]/div[{i}]/div/div/div/div[1]').get_attribute("data-pre-plain-text")
+                                
+                                tarih_hepsi = tarih_gonderici[:19].replace(" ","") #[19:55, 06.03.2022]
+                                tarih_epoch = datetime.strptime(tarih_hepsi, '[%H:%M,%d.%m.%Y]')
+                                tarih_epoch = int(tarih_epoch.timestamp())
+                                gonderici = tarih_gonderici[20:].replace(" ","").replace(":","") #Emmoğlu:
+                                alici = self.username
+                                if (self.username == gonderici):
+                                    alici = person.getName()
+                                mesaj = WhatsappMessage(gonderici,alici,mesaj_icerik,0,tarih_epoch)
+                                mesaj_sha256 = mesaj.getSha256()
+                                if mesaj_sha256 not in mesaj_icerik_sha256:
+                                    mesajListesi.append(mesaj)
+                                    mesaj_icerik_sha256.append(mesaj_sha256)
+                                    mesajSayisi += 1
+                            except Exception as e:
+                                pass
+
+                            #fotoğraf
+                            try:
+                                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[14]/div/div[1]/div/div/div[1]/div[1]/div[2]/img
+                                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[26]/div/div[1]/div/div/div[1]/div[1]/div[2]/img
+
+                                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[23]/div/div[1]/span[1]
+                                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[23]/div/div[1]/div
+                                fotograf_src = self.browser.find_element_by_xpath(f'//*[@id="main"]/div[3]/div/div[2]/div[3]/div[{i}]/div/div/div/div[1]/div/div/div[1]/div[1]/div[2]/img').get_attribute("src")
+                                fotograf_src = fotograf_src.replace("blob:","")
+                                fotograf_src_hash = fotograf_src.replace("https://web.whatsapp.com/","")
+                                mesaj = WhatsappMessage("gonderici","alici","FOTOGRAF",1,0)
+                                mesaj.setSrc(fotograf_src)
+                                if fotograf_src_hash not in mesaj_icerik_sha256:
+                                    mesajListesi.append(mesaj)
+                                    mesaj_icerik_sha256.append(mesaj_sha256)
+                                    mesajSayisi += 1
+                                #src="blob:https://web.whatsapp.com/7762b3eb-312b-4625-83b7-191c2e792fda"
+
+                            except Exception as e:
+                                pass
+
+
+
+
+                            #çıkartma
+
+
+                        
+                            # emoji
+                        self.scroolChatPaneSide(-300)
+                    #mesajListesi sort by date with newest first
+                    mesajListesi.sort(key=lambda x: x.getDate(),reverse=True)
+                    for mesaj in mesajListesi:
+                        print(mesaj)
+                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[33]/div/div/div/div[1]/div/span[1]/span
+                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[35]/div/div/div/div[1]/div/span[1]/span
+                #//*[@id="main"]/div[3]/div/div[2]/div[3]/div[36]/div/div/div/div[1]/div/span[1]/span
+
+    def getPersonDetailWithName(self,name):
+        """Kişi hakkındaki bilgileri çeker. Hakkımda ve telefon numarası."""
+        if self.browser.current_url == self.WPURL:
+            myPerson = self.getPersonWithName(name) #fonksiyona verilen name adındaki objeyi al
+            if myPerson != None:
+                print(f"Getting person detail with name: {myPerson.getName()}, id: {myPerson.getID()}")
+                if myPerson.getType() == "Person":
+                    self.clickNewChatButton() 
+                    if self.clickPeopleInNewChatSide(myPerson.getName()):
+                        #get detail
+                        self.clickNameBar()
+                        sleep(1)
+                        try:
+                            telephoneNumber = self.browser.find_element_by_xpath('//*[@id="app"]/div[1]/div[1]/div[2]/div[3]/span/div[1]/span/div[1]/div/section/div[1]/div[2]/div/span/span').text
+                            telephoneNumber = telephoneNumber.replace(" ","")
+                        except:
+                            telephoneNumber = None
+                        try:
+                            statText = self.browser.find_element_by_xpath('//*[@id="app"]/div[1]/div[1]/div[2]/div[3]/span/div[1]/span/div[1]/div/section/div[2]/span/span').text
+                            #sqlite illegal chracter fix
+                            statText = statText.replace("'","")
+                            statText = statText.replace("\\","")
+                            statText = statText.replace("/","")
+                            statText = statText.replace("\"","")
+                            statText = statText.replace("<","")
+                            statText = statText.replace(">","")
+                            statText = statText.replace("|","")
+                            statText = statText.replace("*","")
+                            statText = statText.replace("?","")
+                        except:
+                            statText = None
+
+                        try:
+                            profilePictureXpath = self.browser.find_element_by_xpath('//*[@id="app"]/div[1]/div[1]/div[2]/div[3]/span/div[1]/span/div[1]/div/section/div[1]/div[1]/div/img')
+                            profilePictureLink = profilePictureXpath.get_attribute('src')
+                            print("profile picture link: ",profilePictureLink)
+                            #E:\Github\python-16-whatsappAnalyzer\Picture
+                            #elf.chromeDriverPath = getcwd() + fr"\{C.get_chrome_driver_loc()}"
+                            self.createFolder(getcwd() + fr"\Picture\{myPerson.getName()}")
+                            profilePictureLoc =  getcwd() +  fr"\Picture\{myPerson.getName()}\pp{self.get_time_log_config()}.jpg"
+                            self.downloadPictureFromURL(profilePictureLink,profilePictureLoc)
+                            profilePicture = profilePictureLoc
+                        except:
+                            print("Profile picture not found")
+                            logging.info("Profile picture not found")
+                            profilePicture = None
+
+                        myPerson.setProfilePicture(profilePicture)
+                        myPerson.setStatusText(statText)
+                        myPerson.setTelephoneNumber(telephoneNumber)
+
+
+                        #//*[@id="app"]/div[1]/div[1]/div[2]/div[3]/span/div[1]/span/div[1]/div/section/div[1]/div[1]/div/img
+                        #//*[@id="app"]/div[1]/div[1]/div[2]/div[3]/span/div[1]/span/div[1]/div/section/div[1]/div[1]/div/div/span
+                        self.myDb.updatePerson(myPerson)
+                    else:
+                        logging.info("Person not found")
+                        print("Person not found")
+                else:
+                    print(f"{myPerson.getName()} is a group.")
+                    logging.info(f"{myPerson.getName()} is a group.")
+            else:
+                print(f"'{name}' is not found in person list.")
+                logging.info(f"'{name}' is not found in person list.")
+        else:
+            print("You are not in Whatsapp")
+            logging.error("You are not in Whatsapp")
+    
         
         
